@@ -1,0 +1,2 @@
+doldurun yazan kisimlarin hepsini gemini kodunuzla doldurun
+start-gemini-bot.bat dosyasini calistirin

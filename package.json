@@ -1,0 +1,46 @@
+{
+  "name": "my-telegram-agent",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "mastra dev",
+    "build": "mastra build",
+    "start": "node index.js",
+    "bridge": "node index.js bridge",
+    "typecheck": "tsc --noEmit",
+    "start:mastra": "node index.js mastra",
+    "start:bridge": "node index.js bridge",
+    "start:improved": "node index.js improved",
+    "start:both": "node index.js both",
+    "cleanup": "node cleanup-batch-files.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^1.2.18",
+    "@clerk/clerk-sdk-node": "^4.13.23",
+    "@google-cloud/aiplatform": "^4.2.0",
+    "@google/generative-ai": "^0.24.1",
+    "@mastra/core": "^0.9.4",
+    "@mastra/libsql": "^0.0.4-alpha.4",
+    "@mastra/memory": "^0.3.4-alpha.4",
+    "dotenv": "^16.5.0",
+    "google-auth-library": "^10.0.0-rc.2",
+    "node-fetch": "^3.3.2",
+    "node-telegram-bot-api": "^0.66.0",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.18",
+    "@types/node-telegram-bot-api": "^0.64.8",
+    "mastra": "^0.6.3-alpha.6",
+    "typescript": "^5.8.3"
+  }
+}
