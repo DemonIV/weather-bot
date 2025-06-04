@@ -8,6 +8,7 @@ import { TelegramService } from '../../../utils/telegram';
 import { getGeminiResponse } from '../../../utils/gemini';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { google } from '@ai-sdk/google';
+import axios from 'axios';
 
 // Track conversation state for each user
 const userStates: Record<string, {
@@ -22,25 +23,21 @@ const userStates: Record<string, {
 // Simple response database for different intents
 const responses = {
   greetings: [
-    "Merhaba! Nasıl yardımcı olabilirim?",
-    "Selam! Bugün size nasıl yardımcı olabilirim?",
-    "Merhaba! Bunder Bot hizmetinizde. Nasıl yardımcı olabilirim?"
+    "Merhaba! Hangi şehrin hava durumunu öğrenmek istersiniz?",
+    "Selam! Size hangi şehir için hava durumu bilgisi verebilirim?",
+    "Merhaba! Hava Durumu Bot hizmetinizde. Hangi şehir için bilgi almak istersiniz?"
   ],
   help: [
-    "Size şu konularda yardımcı olabilirim:\n- İş ortaklarıyla bağlantı kurma\n- Şirket bilgilerinizi yönetme\n- Potansiyel ortaklar hakkında bilgi alma\n\nLütfen ne tür bir yardıma ihtiyacınız olduğunu belirtin.",
-    "Bunder Bot şunları yapabilir:\n- İş ortaklarıyla iletişim kurmanıza yardımcı olur\n- Şirket profilinizi yönetir\n- Potansiyel iş ortakları bulur\n\nDaha spesifik bir konuda yardım ister misiniz?"
+    "Size şu konularda yardımcı olabilirim:\n- Herhangi bir şehir için güncel hava durumu\n- 5 günlük hava durumu tahmini\n- Hava durumu uyarıları\n\nKullanım: /weather [şehir adı]\nÖrnek: /weather İstanbul",
+    "Hava Durumu Bot şunları yapabilir:\n- Anlık hava durumu bilgisi\n- Sıcaklık, nem, rüzgar bilgisi\n- Hissedilen sıcaklık\n\nKullanım: /weather [şehir adı]"
   ],
   about: [
-    "Ben Bunder Bot, işletmenize potansiyel iş ortakları bulmanıza yardımcı olmak için geliştirilmiş bir asistanım. Şirket profilinizi oluşturabilir ve benzer hedeflere sahip firmalarla bağlantı kurmanızı sağlayabilirim.",
-    "Adım Bunder Bot. Amacım şirketlerin birbirleriyle iş ortaklığı kurmalarını kolaylaştırmak. Şirket bilgilerinizi kaydetmeme izin verirseniz, size uygun potansiyel iş ortakları önerebilirim."
-  ],
-  howItWorks: [
-    "Sistem şöyle çalışır:\n1. Şirket bilgilerinizi kaydedersiniz\n2. İş hedeflerinizi ve ortak türünü belirtirsiniz\n3. Sistem size uygun eşleşmeleri bulur\n4. İletişime geçmek istediğiniz şirketlerle bağlantı kurarsınız",
-    "Bot çalışma prensibi:\n1. Önce şirket profilinizi oluşturursunuz\n2. Hangi sektörde ve ne tür ortaklar aradığınızı belirtirsiniz\n3. Bot size uygun eşleşmeleri gösterir\n4. Beğendiğiniz şirketlerle iletişime geçebilirsiniz"
+    "Ben Hava Durumu Bot, size güncel hava durumu bilgilerini sunmak için geliştirilmiş bir asistanım. OpenWeatherMap API'sini kullanarak doğru ve güncel bilgiler sağlıyorum.",
+    "Adım Hava Durumu Bot. Amacım size en doğru ve güncel hava durumu bilgilerini sunmak. İstediğiniz şehir için detaylı hava durumu bilgisi alabilirsiniz."
   ],
   unknown: [
-    "Üzgünüm, bu konuda henüz bilgim yok. Size nasıl yardımcı olabilirim?",
-    "Bu konuda yeterli bilgim yok maalesef. Başka nasıl yardımcı olabilirim?"
+    "Üzgünüm, bu komutu anlayamadım. Hava durumu bilgisi almak için /weather [şehir] komutunu kullanabilirsiniz.",
+    "Bu komut şu anda kullanılamıyor. Hava durumu bilgisi almak için /weather [şehir] komutunu deneyin."
   ],
   error: [
     "Üzgünüm, bir sorun oluştu. Lütfen tekrar deneyin.",
@@ -56,6 +53,219 @@ const exampleCompanies = [
   { name: "FinanceHub", industry: "Finans", region: "İstanbul", size: "Küçük", interests: "Fintech çözümleri" },
   { name: "EcoFarm", industry: "Tarım", region: "Antalya", size: "Küçük", interests: "Sürdürülebilir tarım" }
 ];
+
+// OpenWeatherMap API anahtarı
+const OPENWEATHERMAP_API_KEY = process.env.OPENWEATHERMAP_API_KEY;
+
+// API anahtarı kontrolü
+if (!OPENWEATHERMAP_API_KEY) {
+  console.error('HATA: OpenWeatherMap API anahtarı bulunamadı!');
+  console.error('Lütfen .env dosyasında OPENWEATHERMAP_API_KEY değişkenini tanımlayın.');
+  process.exit(1);
+}
+
+console.log(`OpenWeatherMap API anahtarı yüklendi: ${OPENWEATHERMAP_API_KEY.substring(0, 5)}...`);
+
+// İlginç hava gerçekleri
+const weatherFacts = [
+  "Şimşek, yıldırımdan önce gelir. Çünkü ışık, sesten daha hızlıdır!",
+  "Dünya'da her saniye yaklaşık 100 şimşek çakar.",
+  "En yüksek sıcaklık 1913'te Death Valley'de 56.7°C olarak ölçülmüştür.",
+  "En düşük sıcaklık 1983'te Antarktika'da -89.2°C olarak ölçülmüştür.",
+  "Bir yağmur damlası saatte 32 km hızla düşer.",
+  "Kar taneleri asla birbirine benzemez, her biri benzersizdir.",
+  "Gökkuşağı aslında tam bir daire şeklindedir, ancak yerden sadece yarım daire olarak görünür.",
+  "Rüzgar, güneş ışınlarının dünya yüzeyini farklı hızlarda ısıtmasından kaynaklanır.",
+  "Bir fırtına bulutu 500.000 ton ağırlığında olabilir.",
+  "Dünya'nın en kuru yeri Atacama Çölü'dür, bazı bölgelerinde 400 yıl yağmur yağmamıştır."
+];
+
+// Rastgele hava gerçeği seç
+function getRandomWeatherFact(): string {
+  return weatherFacts[Math.floor(Math.random() * weatherFacts.length)];
+}
+
+// Hava durumuna göre kıyafet tavsiyesi
+function getClothingAdvice(temp: number, description: string): string {
+  let advice = '';
+  
+  // Sıcaklık bazlı tavsiyeler
+  if (temp <= 5) {
+    advice += '❄️ *Çok soğuk hava:*\n' +
+              '• Kalın mont veya kaban\n' +
+              '• Bere, atkı ve eldiven\n' +
+              '• Kalın kazak veya hırka\n' +
+              '• Termal içlik\n' +
+              '• Kalın pantolon\n';
+  } else if (temp <= 10) {
+    advice += '🥶 *Soğuk hava:*\n' +
+              '• Mont veya kaban\n' +
+              '• Bere ve atkı\n' +
+              '• Kalın kazak\n' +
+              '• Uzun kollu içlik\n' +
+              '• Kalın pantolon\n';
+  } else if (temp <= 15) {
+    advice += '🌡️ *Serin hava:*\n' +
+              '• Hırka veya kazak\n' +
+              '• Uzun kollu tişört\n' +
+              '• İnce mont\n' +
+              '• Uzun pantolon\n';
+  } else if (temp <= 20) {
+    advice += '🌤️ *Ilık hava:*\n' +
+              '• İnce hırka\n' +
+              '• Uzun kollu tişört\n' +
+              '• Uzun pantolon\n';
+  } else if (temp <= 25) {
+    advice += '☀️ *Sıcak hava:*\n' +
+              '• İnce tişört\n' +
+              '• Şort veya ince pantolon\n' +
+              '• Açık renkli kıyafetler\n';
+  } else {
+    advice += '🔥 *Çok sıcak hava:*\n' +
+              '• İnce ve açık renkli tişört\n' +
+              '• Şort\n' +
+              '• Şapka\n' +
+              '• Güneş gözlüğü\n';
+  }
+
+  // Hava durumu bazlı ek tavsiyeler
+  if (description.includes('yağmur') || description.includes('yağmurlu')) {
+    advice += '\n🌧️ *Yağmurlu hava için:*\n' +
+              '• Yağmurluk veya şemsiye\n' +
+              '• Su geçirmez ayakkabı\n' +
+              '• Su geçirmez çanta\n';
+  } else if (description.includes('kar') || description.includes('karlı')) {
+    advice += '\n❄️ *Karlı hava için:*\n' +
+              '• Bot veya su geçirmez ayakkabı\n' +
+              '• Kalın çorap\n' +
+              '• Eldiven\n';
+  } else if (description.includes('rüzgar') || description.includes('rüzgarlı')) {
+    advice += '\n💨 *Rüzgarlı hava için:*\n' +
+              '• Rüzgarlık\n' +
+              '• Bere veya şapka\n';
+  }
+
+  return advice;
+}
+
+// Hava durumu bilgilerini almak için fonksiyon
+async function getWeather(city: string) {
+  try {
+    console.log(`Hava durumu bilgisi alınıyor: ${city}`);
+    console.log(`API Anahtarı: ${OPENWEATHERMAP_API_KEY?.substring(0, 5)}...`);
+    
+    const response = await axios.get(`https://api.openweathermap.org/data/2.5/weather`, {
+      params: {
+        q: city,
+        appid: OPENWEATHERMAP_API_KEY,
+        units: 'metric',
+        lang: 'tr'
+      }
+    });
+    
+    console.log('API yanıtı alındı:', response.data);
+    
+    const weather = response.data;
+    
+    // Hissedilen sıcaklık hesaplama
+    const feelsLike = Math.round(weather.main.feels_like);
+    const temp = Math.round(weather.main.temp);
+    const humidity = weather.main.humidity;
+    const windSpeed = weather.wind.speed;
+    const windDeg = weather.wind.deg;
+    const description = weather.weather[0].description;
+    
+    // Rüzgar yönünü hesapla
+    const windDirections = ['Kuzey', 'Kuzeydoğu', 'Doğu', 'Güneydoğu', 'Güney', 'Güneybatı', 'Batı', 'Kuzeybatı'];
+    const windDirection = windDirections[Math.round(windDeg / 45) % 8];
+    
+    // Kıyafet tavsiyesi al
+    const clothingAdvice = getClothingAdvice(temp, description);
+    
+    // Rastgele hava gerçeği al
+    const weatherFact = getRandomWeatherFact();
+
+    return `🌤️ *${city} için Hava Durumu*\n\n` +
+           `*Şu anki durum:*\n` +
+           `🌡️ Sıcaklık: ${temp}°C\n` +
+           `🌡️ Hissedilen: ${feelsLike}°C\n` +
+           `💧 Nem: %${humidity}\n` +
+           `💨 Rüzgar: ${windSpeed} km/s (${windDirection})\n` +
+           `🌤️ Durum: ${description}\n\n` +
+           `*Kıyafet Tavsiyesi:*\n` +
+           `${clothingAdvice}\n\n` +
+           `*İlginç Hava Bilgisi:*\n` +
+           `📚 ${weatherFact}\n\n` +
+           `Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}`;
+  } catch (error) {
+    console.error('Hava durumu bilgisi alınamadı:', error.message);
+    if (error.response) {
+      console.error('API Yanıt Detayları:', error.response.data);
+    }
+    return 'Üzgünüm, hava durumu bilgisi alınamadı. Lütfen daha sonra tekrar deneyin.';
+  }
+}
+
+// 5 günlük hava durumu tahmini için fonksiyon
+async function getForecast(city) {
+  try {
+    const response = await axios.get(`https://api.openweathermap.org/data/2.5/forecast`, {
+      params: {
+        q: city,
+        appid: OPENWEATHERMAP_API_KEY,
+        units: 'metric',
+        lang: 'tr'
+      }
+    });
+
+    const forecast = response.data;
+    interface DailyForecast {
+      date: string;
+      temp: number;
+      feelsLike: number;
+      humidity: number;
+      description: string;
+      windSpeed: number;
+      windDeg: number;
+    }
+
+    const dailyForecasts: DailyForecast[] = [];
+    const seenDates = new Set();
+
+    // Her gün için bir tahmin al
+    forecast.list.forEach(item => {
+      const date = new Date(item.dt * 1000);
+      const dateStr = date.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
+      
+      if (!seenDates.has(dateStr)) {
+        seenDates.add(dateStr);
+        dailyForecasts.push({
+          date: dateStr,
+          temp: Math.round(item.main.temp),
+          feelsLike: Math.round(item.main.feels_like),
+          humidity: item.main.humidity,
+          description: item.weather[0].description,
+          windSpeed: item.wind.speed,
+          windDeg: item.wind.deg
+        });
+      }
+    });
+
+    return `🌤️ *${city} için 5 Günlük Hava Durumu Tahmini*\n\n` +
+           dailyForecasts.map(day => 
+             `*${day.date}*\n` +
+             `🌡️ Sıcaklık: ${day.temp}°C\n` +
+             `🌡️ Hissedilen: ${day.feelsLike}°C\n` +
+             `💧 Nem: %${day.humidity}\n` +
+             `🌤️ Durum: ${day.description}\n` +
+             `💨 Rüzgar: ${day.windSpeed} km/s\n\n`
+           ).join('') +
+           `Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}`;
+  } catch (error) {
+    console.error('Hava durumu tahmini alınamadı:', error);
+    return 'Üzgünüm, hava durumu tahmini alınamadı. Lütfen daha sonra tekrar deneyin.';
+  }
+}
 
 /**
  * Enhanced Telegram agent for improved conversation handling
@@ -139,89 +349,69 @@ export class EnhancedTelegramAgent extends Agent {
       // Send welcome message with commands
       await TelegramService.sendMessage(
         chatId,
-        'Merhaba! Bunder Telegram Bot\'una hoş geldiniz! 👋\n\n' +
-        'Bu bot, potansiyel iş ortaklarıyla bağlantı kurmanıza yardımcı olacak. ' +
-        'Aşağıdaki komutları kullanabilirsiniz:\n\n' +
-        '/help - Yardım bilgisi\n' +
-        '/about - Bot hakkında bilgi\n' +
-        '/howitworks - Nasıl çalışır\n' +
-        '/partners - Örnek iş ortakları'
+        '🌤️ *Hava Durumu Botuna Hoş Geldiniz!* 👋\n\n' +
+        'Ben size güncel hava durumu bilgilerini sunan bir asistanım. İstediğiniz şehir için detaylı hava durumu bilgisi alabilirsiniz.\n\n' +
+        '*Nasıl Kullanılır?*\n' +
+        '1️⃣ Anlık hava durumu için:\n' +
+        '   `/weather [şehir]`\n' +
+        '   Örnek: `/weather İstanbul`\n\n' +
+        '2️⃣ 5 günlük tahmin için:\n' +
+        '   `/forecast [şehir]`\n' +
+        '   Örnek: `/forecast İstanbul`\n\n' +
+        '*Diğer Komutlar:*\n' +
+        'ℹ️ `/help` - Tüm komutları ve kullanımını gösterir\n' +
+        '📝 `/about` - Bot hakkında bilgi verir\n\n' +
+        'Hangi şehrin hava durumunu öğrenmek istersiniz? 😊',
+        { parse_mode: 'Markdown' }
       );
       
       // Set session state to onboarding complete
       SessionManager.updateSession(userId, {
         state: UserState.ONBOARDING_COMPLETE
       });
-      
-      // Track user conversation state
-      userStates[chatId] = {
-        lastCommand: 'start',
-        conversationStage: 'initial'
-      };
     });
 
     // Handle /help command
     TelegramService.onMessage(/^\/help$/, async (msg) => {
       const chatId = msg.chat.id;
       await TelegramService.sendMessage(chatId, this.getRandomResponse('help'));
-      userStates[chatId] = { lastCommand: 'help' };
     });
 
     // Handle /about command
     TelegramService.onMessage(/^\/about$/, async (msg) => {
       const chatId = msg.chat.id;
       await TelegramService.sendMessage(chatId, this.getRandomResponse('about'));
-      userStates[chatId] = { lastCommand: 'about' };
     });
 
-    // Handle /howitworks command
-    TelegramService.onMessage(/^\/howitworks$/, async (msg) => {
+    // Handle /weather command
+    TelegramService.onMessage(/^\/weather (.+)$/, async (msg) => {
       const chatId = msg.chat.id;
-      await TelegramService.sendMessage(chatId, this.getRandomResponse('howItWorks'));
-      userStates[chatId] = { lastCommand: 'howitworks' };
+      const city = msg.text ? msg.text.split(' ')[1] : '';
+      console.log(`/weather komutu alındı, şehir: ${city}`);
+
+      // Yazıyor... göster
+      await TelegramService.sendMessage(chatId, 'Hava durumu bilgisi alınıyor...');
+
+      // Hava durumu bilgisi al ve gönder
+      const weatherInfo = await getWeather(city);
+      await TelegramService.sendMessage(chatId, weatherInfo);
     });
 
-    // Handle /partners command
-    TelegramService.onMessage(/^\/partners$/, async (msg) => {
+    // Handle /forecast command
+    TelegramService.onMessage(/^\/forecast (.+)$/, async (msg) => {
       const chatId = msg.chat.id;
-      
-      let response = "İşte size uygun olabilecek örnek iş ortakları:\n\n";
-      
-      exampleCompanies.forEach((company, index) => {
-        response += `${index + 1}. *${company.name}*\n`;
-        response += `   - Sektör: ${company.industry}\n`;
-        response += `   - Konum: ${company.region}\n`;
-        response += `   - Büyüklük: ${company.size}\n`;
-        response += `   - İlgi Alanları: ${company.interests}\n\n`;
-      });
-      
-      response += "Herhangi bir şirket hakkında daha fazla bilgi için şirket adını yazabilirsiniz.";
-      
-      await TelegramService.sendMessage(chatId, response, { parse_mode: 'Markdown' });
-      
-      userStates[chatId] = { 
-        lastCommand: 'partners',
-        expectingCompanyName: true 
-      };
+      const city = msg.text ? msg.text.split(' ')[1] : '';
+      console.log(`/forecast komutu alındı, şehir: ${city}`);
+
+      // Yazıyor... göster
+      await TelegramService.sendMessage(chatId, '5 günlük hava durumu tahmini alınıyor...');
+
+      // 5 günlük tahmin bilgisi al ve gönder
+      const forecastInfo = await getForecast(city);
+      await TelegramService.sendMessage(chatId, forecastInfo, { parse_mode: 'Markdown' });
     });
 
-    // Handle /gemini command to force AI response
-    TelegramService.onMessage(/^\/gemini$/, async (msg) => {
-      const chatId = msg.chat.id;
-      const userId = `telegram:${chatId}`;
-      
-      await TelegramService.sendMessage(
-        chatId, 
-        "Gemini AI modundasınız. Sormak istediğiniz soruyu yazabilirsiniz."
-      );
-      
-      userStates[chatId] = {
-        lastCommand: 'gemini',
-        conversationStage: 'ai_mode'
-      };
-    });
-
-    // Handle regular messages with more sophisticated conversation flow
+    // Handle regular messages
     bot.on('message', async (msg) => {
       // Skip if not a text message or if it's a command (already handled above)
       if (!msg.text || msg.text.startsWith('/')) {
@@ -230,7 +420,6 @@ export class EnhancedTelegramAgent extends Agent {
       
       const chatId = msg.chat.id;
       const userId = `telegram:${chatId}`;
-      const userState = userStates[chatId] || { lastCommand: null };
       
       console.log(`Enhanced agent received message: "${msg.text}" from Chat ID: ${chatId}`);
       
@@ -242,75 +431,9 @@ export class EnhancedTelegramAgent extends Agent {
         });
       }
       
-      // If user was looking at partner list and might be asking about a company
-      if (userState.expectingCompanyName) {
-        const companyName = msg.text.toLowerCase();
-        const company = exampleCompanies.find(c => 
-          c.name.toLowerCase().includes(companyName)
-        );
-        
-        if (company) {
-          await TelegramService.sendMessage(
-            chatId,
-            `*${company.name}* hakkında detaylı bilgi:\n\n` +
-            `🏢 *Şirket*: ${company.name}\n` +
-            `🔍 *Sektör*: ${company.industry}\n` +
-            `📍 *Konum*: ${company.region}\n` +
-            `📊 *Şirket Büyüklüğü*: ${company.size}\n` +
-            `🤝 *İşbirliği İlgi Alanları*: ${company.interests}\n\n` +
-            `Bu şirketle iletişime geçmek ister misiniz? (Evet/Hayır)`,
-            { parse_mode: 'Markdown' }
-          );
-          
-          userStates[chatId] = {
-            lastCommand: 'companyDetail',
-            selectedCompany: company.name,
-            expectingConfirmation: true
-          };
-          return;
-        }
-      }
-      
-      // If expecting confirmation for contacting a company
-      if (userState.expectingConfirmation && userState.selectedCompany) {
-        const answer = msg.text.toLowerCase();
-        
-        if (answer.includes('evet') || answer.includes('yes') || answer === 'e') {
-          await TelegramService.sendMessage(
-            chatId,
-            `Harika! *${userState.selectedCompany}* ile iletişim talebiniz iletildi. ` +
-            `En kısa sürede sizinle iletişime geçecekler.\n\n` +
-            `Başka bir konuda yardıma ihtiyacınız var mı?`,
-            { parse_mode: 'Markdown' }
-          );
-        } else {
-          await TelegramService.sendMessage(
-            chatId,
-            `Anlaşıldı. Başka bir şirket hakkında bilgi almak isterseniz, ` +
-            `tekrar /partners komutunu kullanabilirsiniz.`
-          );
-        }
-        
-        // Reset the expectation
-        userStates[chatId] = { lastCommand: 'general' };
-        return;
-      }
-      
-      // For more complex AI-driven responses, use Mastra's agent capabilities
-      if (msg.text.length > 20 || msg.text.includes('?') || userState.lastCommand === 'gemini') {
-        // Use AI model for complex queries
-        await this.handleAIResponse(userId, chatId, msg.text);
-      } else {
-        // For simpler messages, use intent-based responses
-        const intent = this.analyzeMessage(msg.text);
-        await TelegramService.sendMessage(chatId, this.getRandomResponse(intent));
-      }
-      
-      // Update user state
-      userStates[chatId] = { 
-        lastCommand: 'general',
-        lastIntent: this.analyzeMessage(msg.text)
-      };
+      // Niyet analizi yap ve yanıt ver
+      const intent = this.analyzeMessage(msg.text);
+      await TelegramService.sendMessage(chatId, this.getRandomResponse(intent));
     });
   }
 
@@ -413,9 +536,9 @@ export class EnhancedTelegramAgent extends Agent {
       return 'about';
     }
     
-    // How it works
-    if (lowercaseText.match(/nasıl çalış|nasil calis|how|sistem|çalışma|calisma|işleyiş|isleyis/)) {
-      return 'howItWorks';
+    // Weather related
+    if (lowercaseText.match(/hava|durum|sıcaklık|sicaklik|nem|rüzgar|ruzgar|yağmur|yagmur/)) {
+      return 'help';
     }
     
     // Default - unknown intent

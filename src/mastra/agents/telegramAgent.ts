@@ -7,6 +7,7 @@ import { OnboardingService } from '../../utils/onboarding';
 import { SessionManager } from '../../utils/session';
 import { TelegramService } from '../../utils/telegram';
 import { google } from '@ai-sdk/google';
+import axios from 'axios';
 
 /**
  * Telegram agent for handling user interactions
@@ -117,6 +118,26 @@ export class TelegramAgent extends Agent {
             state: UserState.ONBOARDING_COMPLETE
           });
         }
+      }
+    });
+
+    // Handle /weather command
+    bot.on('message', async (msg) => {
+      if (msg.text && msg.text.startsWith('/weather ')) {
+        const chatId = msg.chat.id;
+        const city = msg.text.substring('/weather '.length).trim();
+        console.log(`/weather komutu alındı, şehir: ${city}`);
+
+        // Yazıyor... göster
+        await bot.sendChatAction(chatId, 'typing');
+
+        // Hava durumu bilgisi al ve gönder
+        const weatherInfo = await this.getWeather(city);
+        await bot.sendMessage(chatId, weatherInfo);
+
+        // Kullanıcı durumunu güncelle
+        const userId = `telegram:${chatId}`;
+        SessionManager.updateSession(userId, { lastCommand: 'weather' });
       }
     });
 
@@ -304,6 +325,28 @@ export class TelegramAgent extends Agent {
     } catch (error) {
       console.error('Error generating response:', error);
       return 'Üzgünüm, yanıt oluşturulurken bir hata oluştu. Lütfen daha sonra tekrar deneyin.';
+    }
+  }
+
+  // OpenWeatherMap API anahtarı
+  private readonly OPENWEATHERMAP_API_KEY = process.env.OPENWEATHERMAP_API_KEY;
+
+  // Hava durumu bilgilerini almak için fonksiyon
+  private async getWeather(city: string): Promise<string> {
+    try {
+      const response = await axios.get(`https://api.openweathermap.org/data/2.5/weather`, {
+        params: {
+          q: city,
+          appid: this.OPENWEATHERMAP_API_KEY,
+          units: 'metric',
+          lang: 'tr'
+        }
+      });
+      const weather = response.data;
+      return `Şu anda ${weather.name} için hava durumu: ${weather.weather[0].description}, sıcaklık: ${weather.main.temp}°C, nem: ${weather.main.humidity}%`;
+    } catch (error) {
+      console.error('Hava durumu bilgisi alınamadı:', error);
+      return 'Üzgünüm, hava durumu bilgisi alınamadı. Lütfen daha sonra tekrar deneyin.';
     }
   }
 }

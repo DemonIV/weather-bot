@@ -53,4 +53,5 @@ export interface UserSession {
   currentField?: OnboardingField;
   onboardingData: Partial<OnboardingData>;
   isAuthenticated: boolean;
+  lastCommand?: string;
 }
